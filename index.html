@@ -66,7 +66,7 @@
     top:0;
     height:100vh;
     padding: 18px 14px;
-    transition: transform .25s ease, background .25s ease, border-color .25s ease;
+    transition: transform .25s ease, margin-left .25s ease, background .25s ease, border-color .25s ease;
     z-index: 40;
   }
   .brand{
@@ -79,6 +79,11 @@
     flex-shrink:0;
   }
   .brand-name{ font-weight:700; font-size:15px; letter-spacing:-0.01em; }
+
+  .sidebar-close{
+    margin-left:auto; width:34px; height:34px; font-size:14px; flex-shrink:0;
+    color: var(--text);
+  }
 
   .sidebar-scroll{ flex:1; overflow-y:auto; padding-right:2px; }
   .sidebar-scroll::-webkit-scrollbar{ width:6px; }
@@ -120,6 +125,19 @@
 
   .sidebar-footer{ border-top:1px solid var(--panel-border); padding-top:10px; margin-top:10px; display:flex; flex-direction:column; gap:2px; }
 
+  /* Desktop collapse */
+  body.sidebar-collapsed .sidebar{
+    margin-left: calc(var(--sidebar-w) * -1);
+    visibility: hidden;
+    transition: margin-left .25s ease, visibility 0s .25s;
+  }
+
+  /* Mobile backdrop behind the slide-out sidebar */
+  .sidebar-backdrop{
+    display:none;
+    position:fixed; inset:0; background: rgba(10,10,14,0.4); z-index:35;
+  }
+
   .main{ flex:1; min-width:0; padding: 26px 34px 60px; }
   .topbar{
     display:flex; align-items:center; justify-content:space-between; gap:20px;
@@ -151,7 +169,7 @@
   .icon-btn{
     width:36px; height:36px; border-radius:10px; border:1px solid var(--panel-border);
     background: var(--panel); display:flex; align-items:center; justify-content:center;
-    font-size:15px;
+    font-size:15px; color: var(--text);
   }
   .icon-btn:hover{ border-color: var(--accent); color: var(--accent); }
   .edit-toggle{
@@ -161,7 +179,7 @@
   }
   .edit-toggle.on{ background: var(--accent); color:#fff; border-color: var(--accent); }
 
-  .menu-toggle{ display:none; }
+  .menu-toggle{ display:flex; }
 
   .category-block{ margin-bottom: 34px; scroll-margin-top: 20px; }
   .category-head{
@@ -273,9 +291,14 @@
     .sidebar{
       position:fixed; left:0; top:0; transform: translateX(-100%);
       box-shadow: 0 0 40px rgba(0,0,0,0.15);
+      padding-top: calc(18px + env(safe-area-inset-top, 0px));
+      padding-bottom: calc(18px + env(safe-area-inset-bottom, 0px));
     }
     .sidebar.open{ transform: translateX(0); }
-    .menu-toggle{ display:flex; }
+    /* Desktop collapse must not affect the mobile slide-out */
+    body.sidebar-collapsed .sidebar{ margin-left:0; visibility:visible; transition: transform .25s ease; }
+    .sidebar-backdrop.show{ display:block; }
+    .sidebar-close{ display:flex; }
     .main{ padding: 18px 16px 60px; }
     .topbar{ gap:10px; }
     .clock-block{ order:3; width:100%; justify-content:space-between; }
@@ -289,6 +312,7 @@
     <div class="brand">
       <div class="brand-mark"></div>
       <div class="brand-name">Dashboard</div>
+      <button class="icon-btn sidebar-close" id="sidebarClose" title="Close sidebar" aria-label="Close sidebar">✕</button>
     </div>
     <div class="sidebar-scroll">
       <div class="nav-section-label">Categories</div>
@@ -304,9 +328,11 @@
     </div>
   </aside>
 
+  <div class="sidebar-backdrop" id="sidebarBackdrop"></div>
+
   <main class="main">
     <div class="topbar">
-      <button class="icon-btn menu-toggle" id="menuToggle">☰</button>
+      <button class="icon-btn menu-toggle" id="menuToggle" aria-label="Toggle sidebar">☰</button>
       <div class="search-wrap">
         <span class="search-icon">🔍</span>
         <input class="search-input" id="searchInput" placeholder="Search links..." autocomplete="off">
@@ -396,6 +422,7 @@
   const STORAGE_KEY = "dashboard_data_v1";
   const THEME_KEY = "dashboard_theme_v1";
   const TIMEZONE_KEY = "dashboard_timezone_v1";
+  const SIDEBAR_KEY = "dashboard_sidebar_v1";
 
   const defaultData = {
     categories: []
@@ -992,13 +1019,46 @@
     reader.readAsText(file);
   }
 
-  function closeMobileSidebar(){
-    document.getElementById("sidebar").classList.remove("open");
+  /* ---------- Sidebar open / close ---------- */
+
+  function isMobile(){
+    return window.matchMedia("(max-width: 860px)").matches;
   }
 
+  function openMobileSidebar(){
+    document.getElementById("sidebar").classList.add("open");
+    document.getElementById("sidebarBackdrop").classList.add("show");
+  }
+
+  function closeMobileSidebar(){
+    document.getElementById("sidebar").classList.remove("open");
+    document.getElementById("sidebarBackdrop").classList.remove("show");
+  }
+
+  function setSidebarCollapsed(collapsed){
+    document.body.classList.toggle("sidebar-collapsed", collapsed);
+    try{ localStorage.setItem(SIDEBAR_KEY, collapsed ? "collapsed" : "open"); }catch(e){}
+  }
+
+  function closeSidebar(){
+    if(isMobile()) closeMobileSidebar();
+    else setSidebarCollapsed(true);
+  }
+
+  function toggleSidebar(){
+    if(isMobile()){
+      if(document.getElementById("sidebar").classList.contains("open")) closeMobileSidebar();
+      else openMobileSidebar();
+    }else{
+      setSidebarCollapsed(!document.body.classList.contains("sidebar-collapsed"));
+    }
+  }
 
   function init(){
     loadTheme();
+    try{
+      if(localStorage.getItem(SIDEBAR_KEY) === "collapsed") document.body.classList.add("sidebar-collapsed");
+    }catch(e){}
     render();
     populateTimezoneSelect();
     updateClock();
@@ -1064,8 +1124,13 @@
       if(e.target.id === "confirmModalOverlay") closeConfirmModal();
     });
 
-    document.getElementById("menuToggle").addEventListener("click", ()=>{
-      document.getElementById("sidebar").classList.toggle("open");
+    document.getElementById("menuToggle").addEventListener("click", toggleSidebar);
+    document.getElementById("sidebarClose").addEventListener("click", closeSidebar);
+    document.getElementById("sidebarBackdrop").addEventListener("click", closeMobileSidebar);
+
+    // If the window is resized to desktop, make sure the mobile drawer state is reset
+    window.addEventListener("resize", ()=>{
+      if(!isMobile()) closeMobileSidebar();
     });
 
     document.addEventListener("keydown", (e)=>{
@@ -1077,6 +1142,7 @@
         closeCategoryModal();
         closeLinkModal();
         closeConfirmModal();
+        if(isMobile()) closeMobileSidebar();
         const searchInput = document.getElementById("searchInput");
         if(document.activeElement === searchInput) searchInput.blur();
       }
