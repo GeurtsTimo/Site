@@ -243,6 +243,9 @@
     min-width:0;
   }
   .link-card:hover{ transform: translateY(-2px); border-color: var(--accent); }
+  .link-card.link-dragging{ opacity:.4; }
+  .link-card.link-drag-over-left{ box-shadow: inset 3px 0 0 0 var(--accent); }
+  .link-card.link-drag-over-right{ box-shadow: inset -3px 0 0 0 var(--accent); }
   .link-favicon{ width:20px; height:20px; border-radius:5px; flex-shrink:0; background: var(--accent-dim); object-fit:cover; }
   .link-text{ min-width:0; }
   .link-title{ font-size:13.5px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
@@ -517,6 +520,7 @@
   }
 
   let draggedCategoryId = null;
+  let draggedLinkInfo = null; // { catId, linkId }
 
   function renderSidebar(){
     const navList = document.getElementById("navList");
@@ -649,6 +653,9 @@
         card.href = link.url;
         card.target = "_blank";
         card.rel = "noopener noreferrer";
+        card.draggable = true;
+        card.dataset.linkId = link.id;
+        card.dataset.catId = cat.id;
         card.innerHTML = `
           <img class="link-favicon" src="${faviconFor(link.url)}" alt="" onerror="this.style.visibility='hidden'">
           <div class="link-text">
@@ -662,7 +669,57 @@
         `;
         card.addEventListener("click", (e)=>{
           if(e.target.closest("[data-action]")) e.preventDefault();
+          if(draggedLinkInfo) e.preventDefault();
         });
+
+        card.addEventListener("dragstart", (e)=>{
+          draggedLinkInfo = { catId: cat.id, linkId: link.id };
+          card.classList.add("link-dragging");
+          e.dataTransfer.effectAllowed = "move";
+          e.dataTransfer.setData("text/plain", link.id);
+        });
+
+        card.addEventListener("dragend", ()=>{
+          draggedLinkInfo = null;
+          grid.querySelectorAll(".link-card").forEach(el=>{
+            el.classList.remove("link-dragging","link-drag-over-left","link-drag-over-right");
+          });
+        });
+
+        card.addEventListener("dragover", (e)=>{
+          if(!draggedLinkInfo || draggedLinkInfo.catId !== cat.id || draggedLinkInfo.linkId === link.id) return;
+          e.preventDefault();
+          const rect = card.getBoundingClientRect();
+          const before = (e.clientX - rect.left) < rect.width / 2;
+          card.classList.toggle("link-drag-over-left", before);
+          card.classList.toggle("link-drag-over-right", !before);
+        });
+
+        card.addEventListener("dragleave", ()=>{
+          card.classList.remove("link-drag-over-left","link-drag-over-right");
+        });
+
+        card.addEventListener("drop", (e)=>{
+          e.preventDefault();
+          card.classList.remove("link-drag-over-left","link-drag-over-right");
+          if(!draggedLinkInfo || draggedLinkInfo.catId !== cat.id || draggedLinkInfo.linkId === link.id) return;
+
+          const rect = card.getBoundingClientRect();
+          const before = (e.clientX - rect.left) < rect.width / 2;
+
+          const fromIndex = cat.links.findIndex(l=>l.id===draggedLinkInfo.linkId);
+          if(fromIndex === -1) return;
+          const [moved] = cat.links.splice(fromIndex, 1);
+
+          let toIndex = cat.links.findIndex(l=>l.id===link.id);
+          if(!before) toIndex += 1;
+          cat.links.splice(toIndex, 0, moved);
+
+          saveData();
+          renderCategories(document.getElementById("searchInput").value);
+          showToast(`Moved "${moved.title}"`);
+        });
+
         grid.appendChild(card);
       });
 
