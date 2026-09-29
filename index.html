@@ -217,8 +217,10 @@
   }
   .category-title{ font-size:17px; font-weight:700; display:flex; align-items:center; gap:8px; }
   .category-title .dot{ width:9px; height:9px; border-radius:50%; background: var(--cat-color, var(--accent)); }
-  .category-actions{ display:none; gap:4px; margin-left:auto; }
+  .category-head-right{ display:flex; align-items:center; gap:6px; margin-left:auto; }
+  .category-actions{ display:none; gap:4px; }
   .category-block.editing .category-actions{ display:flex; }
+  .focus-close{ width:28px; height:28px; font-size:13px; }
   .mini-btn{
     width:26px; height:26px; border-radius:7px; border:1px solid var(--panel-border);
     background: var(--panel); font-size:12px; display:flex; align-items:center; justify-content:center;
@@ -342,6 +344,7 @@
     <div class="brand">
       <div class="brand-mark"></div>
       <div class="brand-name">Dashboard</div>
+      <button class="icon-btn sidebar-close" id="sidebarClose" title="Close sidebar" aria-label="Close sidebar">✕</button>
     </div>
     <div class="sidebar-scroll">
       <div class="nav-section-label">Categories</div>
@@ -462,6 +465,7 @@
 
   let data = loadData();
   let editMode = false;
+  let focusedCategoryId = null;
   let editingCategoryId = null;
   let editingLinkId = null; 
   let linkModalMode = "add"; 
@@ -524,16 +528,15 @@
       btn.dataset.catId = cat.id;
       btn.title = cat.name;
       btn.style.setProperty("--cat-color", cat.color || "#2f5eff");
+      btn.classList.toggle("active", cat.id === focusedCategoryId);
       const initial = (cat.name || "?").trim().charAt(0) || "?";
       btn.innerHTML = `<span class="drag-handle nav-label-keep" title="Drag to reorder">⠿</span><span class="dot"></span><span class="nav-badge">${escapeHtml(initial)}</span><span class="nav-label">${escapeHtml(cat.name)}</span><span class="count nav-label">${cat.links.length}</span>`;
 
       btn.addEventListener("click", (e)=>{
         if(draggedCategoryId) return; // ignore click right after a drag
-        const el = document.getElementById("cat-" + cat.id);
-        if(el){
-          el.scrollIntoView({behavior:"smooth", block:"start"});
-          closeMobileSidebar();
-        }
+        if(focusedCategoryId === cat.id) clearFocus();
+        else focusCategory(cat.id);
+        closeMobileSidebar();
       });
 
       btn.addEventListener("dragstart", (e)=>{
@@ -595,7 +598,13 @@
     const filter = (filterText || "").trim().toLowerCase();
     let anyVisible = false;
 
-    data.categories.forEach(cat=>{
+    const categoriesToRender = focusedCategoryId
+      ? data.categories.filter(c => c.id === focusedCategoryId)
+      : data.categories;
+
+    document.getElementById("addCategoryTileBtn").style.display = focusedCategoryId ? "none" : "flex";
+
+    categoriesToRender.forEach(cat=>{
       const filteredLinks = filter
         ? cat.links.filter(l => l.title.toLowerCase().includes(filter) || l.url.toLowerCase().includes(filter))
         : cat.links;
@@ -608,13 +617,18 @@
       block.id = "cat-" + cat.id;
       block.style.setProperty("--cat-color", cat.color || "#2f5eff");
 
+      const isFocused = focusedCategoryId === cat.id;
+
       const head = document.createElement("div");
       head.className = "category-head";
       head.innerHTML = `
         <div class="category-title"><span class="dot"></span>${escapeHtml(cat.name)}</div>
-        <div class="category-actions">
-          <button class="mini-btn" data-action="edit-cat" data-id="${cat.id}" title="Rename category">✏️</button>
-          <button class="mini-btn danger" data-action="delete-cat" data-id="${cat.id}" title="Delete category">🗑️</button>
+        <div class="category-head-right">
+          <div class="category-actions">
+            <button class="mini-btn" data-action="edit-cat" data-id="${cat.id}" title="Rename category">✏️</button>
+            <button class="mini-btn danger" data-action="delete-cat" data-id="${cat.id}" title="Delete category">🗑️</button>
+          </div>
+          ${isFocused ? `<button class="mini-btn focus-close" data-action="clear-focus" title="Show all categories" aria-label="Show all categories">✕</button>` : ""}
         </div>
       `;
       block.appendChild(head);
@@ -676,6 +690,7 @@
         if(action === "delete-cat") deleteCategory(id);
         if(action === "edit-link") openLinkModal("edit", catId, id);
         if(action === "delete-link") deleteLink(catId, id);
+        if(action === "clear-focus") clearFocus();
       });
     });
   }
@@ -799,6 +814,7 @@
       `Delete "${cat.name}" and all ${cat.links.length} link(s) inside it? This can't be undone.`,
       ()=>{
         data.categories = data.categories.filter(c=>c.id!==catId);
+        if(focusedCategoryId === catId) focusedCategoryId = null;
         saveData();
         render();
         showToast("Category deleted");
@@ -886,6 +902,19 @@
         showToast("Link deleted");
       }
     );
+  }
+
+  function focusCategory(catId){
+    focusedCategoryId = catId;
+    renderSidebar();
+    renderCategories(document.getElementById("searchInput").value);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  function clearFocus(){
+    focusedCategoryId = null;
+    renderSidebar();
+    renderCategories(document.getElementById("searchInput").value);
   }
 
   function setEditMode(on){
